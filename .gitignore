@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# 环境变量 / 密钥
+.env
+*.pem
+*.key
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+
+# WorkBuddy 本地数据（AI 记忆/技能等，不入库）
+.workbuddy/
