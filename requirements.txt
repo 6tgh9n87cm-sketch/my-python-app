@@ -8,13 +8,12 @@
 # flask>=3.0
 # fastapi>=0.110
 # requests>=2.31
-# gunicorn>=21.2
+gunicorn>=22.0
 
 # ===== 开发 / 测试 / 代码质量 =====
 pytest>=8.0
 pytest-cov>=5.0
 ruff>=0.4
 
-# ===== 生产部署（systemd 启动需要，二选一，与 server-init.sh 的 EXEC_START 对应）=====
-# gunicorn>=22.0   # Flask / WSGI
-# uvicorn>=0.30    # FastAPI / ASGI
+# ===== 如果用 FastAPI 而非 Flask，把上面 gunicorn 换成 =====
+# uvicorn>=0.30
