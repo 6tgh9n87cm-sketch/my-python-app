@@ -135,12 +135,13 @@ jobs:
             --exclude '.venv' \
             --exclude '__pycache__' \
             --exclude '*.pyc' \
-            -e "ssh -p ${{ secrets.SSH_PORT || 22 }} -i ~/.ssh/deploy_key" \
+            -e "ssh -p ${{ secrets.SSH_PORT || 22 }} -i ~/.ssh/deploy_key -o ServerAliveInterval=15 -o ServerAliveCountMax=6" \
             ./ "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/"
 
       - name: 远程安装依赖并重启服务
         run: |
           ssh -p "${{ secrets.SSH_PORT || 22 }}" -i ~/.ssh/deploy_key \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=6 \
             "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" <<'REMOTE'
             set -e
             cd "${{ env.DEPLOY_PATH }}"
