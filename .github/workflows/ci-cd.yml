@@ -73,7 +73,7 @@ jobs:
 
       - name: 上报覆盖率（仅主版本）
         if: matrix.python-version == env.PYTHON_VERSION
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.xml
@@ -102,7 +102,7 @@ jobs:
           python -m build
 
       - name: 上传构建产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
