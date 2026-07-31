@@ -6,11 +6,14 @@
   GET  /add       计算示例 ?a=1&b=2
   POST /chat      与大模型对话  {message: "..."} -> {reply: "..."}
 """
+import logging
 import os
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)  # 允许浏览器跨域调用（本地打开网页也能访问云端接口）
@@ -93,12 +96,14 @@ def chat():
         )
         reply = resp.choices[0].message.content
         return jsonify(reply=reply)
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"error": f"调用大模型失败：{exc}"}), 500
+    except Exception:  # noqa: BLE001  pylint: disable=broad-except
+        # 安全：不向前端暴露异常细节，仅返回通用提示，完整错误写日志
+        logger.exception("LLM call failed")
+        return jsonify({"error": "调用大模型失败，请稍后重试"}), 500
 
 
 def main() -> None:
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    app.run(host="0.0.0.0", port=8000, debug=False)  # nosec B104: 对外服务需绑 0.0.0.0
 
 
 if __name__ == "__main__":
