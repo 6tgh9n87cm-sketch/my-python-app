@@ -10,7 +10,7 @@ flask-cors>=4.0        # 允许浏览器跨域调用 /chat
 openai>=1.50.0         # 调用大模型（DeepSeek / 通义 / 智谱 等 OpenAI 兼容接口）
 # fastapi>=0.110
 # requests>=2.31
-gunicorn>=22.0
+gunicorn>=26.0.0
 
 # ===== 开发 / 测试 / 代码质量 =====
 pytest>=8.0
