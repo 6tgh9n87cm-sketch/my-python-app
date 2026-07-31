@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Python 依赖自动升级（pip）
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+
+  # GitHub Actions 版本自动升级
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: [ci]
