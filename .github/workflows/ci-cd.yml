@@ -135,6 +135,7 @@ jobs:
             --exclude '.venv' \
             --exclude '__pycache__' \
             --exclude '*.pyc' \
+            --exclude '.env' \
             -e "ssh -p ${{ secrets.SSH_PORT || 22 }} -i ~/.ssh/deploy_key -o ServerAliveInterval=15 -o ServerAliveCountMax=6" \
             ./ "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:${{ env.DEPLOY_PATH }}/"
 

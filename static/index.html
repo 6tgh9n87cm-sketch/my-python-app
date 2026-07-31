@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的 AI 语音助手</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #1e3c72, #2a5298); color: #fff; min-height: 100vh;
+      display: flex; justify-content: center; padding: 24px;
+    }
+    .container { width: 100%; max-width: 560px; display: flex; flex-direction: column; }
+    h1 { text-align: center; font-size: 22px; margin: 8px 0 16px; }
+    #chat {
+      flex: 1; background: rgba(255,255,255,0.08); border-radius: 12px; padding: 16px;
+      overflow-y: auto; min-height: 320px; max-height: 60vh; display: flex; flex-direction: column; gap: 10px;
+    }
+    .bubble { max-width: 80%; padding: 10px 14px; border-radius: 14px; line-height: 1.5; word-break: break-word; }
+    .me { align-self: flex-end; background: #4caf50; border-bottom-right-radius: 4px; }
+    .ai { align-self: flex-start; background: rgba(255,255,255,0.18); border-bottom-left-radius: 4px; }
+    .controls { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+    #micBtn {
+      flex: 0 0 auto; padding: 12px 16px; border: none; border-radius: 10px; font-size: 15px;
+      background: #ff5252; color: #fff; cursor: pointer; font-weight: 600;
+    }
+    #micBtn.listening { background: #ff1744; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%{opacity:1} 50%{opacity:.6} 100%{opacity:1} }
+    #textInput {
+      flex: 1; padding: 12px; border: none; border-radius: 10px; font-size: 15px; outline: none;
+    }
+    #sendBtn {
+      padding: 12px 18px; border: none; border-radius: 10px; background: #2196f3; color: #fff;
+      cursor: pointer; font-size: 15px; font-weight: 600;
+    }
+    #status { text-align: center; font-size: 13px; min-height: 18px; opacity: .85; margin: 10px 0 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎙️ 我的 AI 语音助手</h1>
+    <div id="chat"></div>
+    <div class="controls">
+      <button id="micBtn">🎤 开始说话</button>
+      <input id="textInput" placeholder="或在这里打字…" />
+      <button id="sendBtn">发送</button>
+    </div>
+    <p id="status"></p>
+  </div>
+
+  <script>
+    const chatEl = document.getElementById("chat");
+    const micBtn = document.getElementById("micBtn");
+    const textInput = document.getElementById("textInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const statusEl = document.getElementById("status");
+
+    function addBubble(text, who) {
+      const div = document.createElement("div");
+      div.className = "bubble " + who;
+      div.textContent = text;
+      chatEl.appendChild(div);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    async function ask(message) {
+      addBubble(message, "me");
+      statusEl.textContent = "AI 正在思考…";
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "请求失败");
+        addBubble(data.reply, "ai");
+        speak(data.reply);
+        statusEl.textContent = "";
+      } catch (e) {
+        addBubble("出错了：" + e.message, "ai");
+        statusEl.textContent = "";
+      }
+    }
+
+    // ---------- 语音合成（把 AI 文字读出来）----------
+    function speak(text) {
+      if (!("speechSynthesis" in window)) return;
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "zh-CN";
+      u.rate = 1;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    }
+
+    // ---------- 语音识别（听你说话）----------
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognizer = null;
+    let listening = false;
+
+    if (SR) {
+      recognizer = new SR();
+      recognizer.lang = "zh-CN";
+      recognizer.interimResults = false;
+      recognizer.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        ask(text);
+      };
+      recognizer.onerror = (e) => {
+        statusEl.textContent = "语音识别出错：" + e.error + "（如果是 http 页面，浏览器会禁用麦克风，需用 https）";
+        listening = false;
+        micBtn.classList.remove("listening");
+        micBtn.textContent = "🎤 开始说话";
+      };
+      recognizer.onend = () => {
+        if (listening) recognizer.start(); // 持续聆听，直到手动停止
+      };
+    } else {
+      micBtn.disabled = true;
+      micBtn.textContent = "浏览器不支持语音";
+    }
+
+    micBtn.addEventListener("click", () => {
+      if (!recognizer) return;
+      if (!listening) {
+        recognizer.start();
+        listening = true;
+        micBtn.classList.add("listening");
+        micBtn.textContent = "⏹ 停止说话";
+        statusEl.textContent = "请说话…";
+      } else {
+        recognizer.stop();
+        listening = false;
+        micBtn.classList.remove("listening");
+        micBtn.textContent = "🎤 开始说话";
+      }
+    });
+
+    // ---------- 文字输入 ----------
+    sendBtn.addEventListener("click", () => {
+      const v = textInput.value.trim();
+      if (v) { ask(v); textInput.value = ""; }
+    });
+    textInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendBtn.click();
+    });
+
+    addBubble("你好！我是你的 AI 助手，可以打字，也可以点麦克风跟我说话～", "ai");
+  </script>
+</body>
+</html>
