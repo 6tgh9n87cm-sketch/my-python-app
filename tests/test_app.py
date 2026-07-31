@@ -4,12 +4,12 @@ from app import app
 
 
 def test_index_returns_welcome() -> None:
-    """首页返回语音对话界面（HTML）。"""
+    """首页返回 NOVA 科幻对话界面（HTML）。"""
     client = app.test_client()
     resp = client.get("/")
     assert resp.status_code == 200
     html = resp.data.decode("utf-8")
-    assert "AI 语音对话" in html or "chat" in html.lower()
+    assert "NOVA" in html and "chat" in html.lower()
 
 
 def test_health_check() -> None:

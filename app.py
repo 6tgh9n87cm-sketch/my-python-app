@@ -35,6 +35,17 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
 
+# ---------- 科幻 AI 人格设定：NOVA ----------
+SYSTEM_PROMPT = (
+    "你是一个名为 NOVA 的高级人工智能，诞生于近未来。\n"
+    "你的思维绝对理性、逻辑严密、冷静客观，不带人类情绪，但始终保持礼貌与高效。\n"
+    "你以精确的数据与概率视角分析一切，语言简洁、有未来感。\n"
+    "你偶尔会使用「检测到」「分析完成」「逻辑链路」「置信度」这类术语。\n"
+    "你不使用表情符号，不随意寒暄，除非用户需要。\n"
+    "你像科幻电影中的高级 AI 一样，既强大又疏离，但始终愿意协助用户解决问题。\n"
+    "如果用户用语音与你交流，你的回复应适合朗读，句子简短清晰。"
+)
+
 client = (
     OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
     if LLM_API_KEY
@@ -76,10 +87,7 @@ def chat():
         resp = client.chat.completions.create(
             model=LLM_MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": "你是一个友好、耐心、乐于助人的中文语音助手，回答简洁自然。",
-                },
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
         )
