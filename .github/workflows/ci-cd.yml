@@ -34,7 +34,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: "3.11"      # 主版本（用于覆盖率上报等单一任务）
+  PYTHON_VERSION: "3.12"      # 主版本（用于覆盖率上报等单一任务，与服务器 Ubuntu 24.04 一致）
   DEPLOY_PATH: "/var/www/app" # 服务器部署目录
   SERVICE_NAME: "myapp"       # systemd 服务名（按需修改）
 
@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: 检出代码
         uses: actions/checkout@v7
