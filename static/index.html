@@ -294,11 +294,6 @@
         }
       });
     }
-      if (!voiceOn) {
-        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-        if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-      }
-    });
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognizer = null, listening = false;
