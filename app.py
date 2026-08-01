@@ -1,17 +1,18 @@
 """Flask 应用：可被 gunicorn 作为 WSGI 入口加载（app:app）。
 
 端点：
-  GET  /          语音对话网页（static/index.html）
-  GET  /health    健康检查
-  GET  /add       计算示例 ?a=1&b=2
-  POST /chat      与大模型对话  {message: "..."} -> {reply: "..."}
+  GET  /             语音对话网页（static/index.html）
+  GET  /health       健康检查
+  GET  /add          计算示例 ?a=1&b=2
+  POST /chat         与大模型对话（非流式）  {message: "..."} -> {reply: "..."}
+  POST /chat/stream  与大模型流式对话（SSE） {message: "..."} -> data: {delta:"..."} / [DONE]
 """
+import base64
+import json
 import logging
 import os
 
-import base64
-
-from flask import Flask, jsonify, request, send_from_directory, Response
+from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
 
@@ -110,6 +111,58 @@ def chat():
         return jsonify({"error": "调用大模型失败，请稍后重试"}), 500
 
 
+@app.post("/chat/stream")
+def chat_stream():
+    """流式对话：SSE 逐块返回 NOVA 的回复（DeepSeek stream=True）。
+
+    前端用 fetch + ReadableStream 读取，逐字渲染 + 闪烁光标。
+    线上数据格式（SSE）：
+        data: {"delta": "...片段..."}\\n\\n   （正常文本块，可能多次）
+        data: {"error": "..."}\\n\\n           （出错时）
+        data: [DONE]\\n\\n                     （流结束标志）
+    注意：不使用 EventSource，因其仅支持 GET；这里保留 POST 请求体，
+    用 fetch 流式读取，视觉上与 EventSource 逐字效果一致。
+    """
+    # 先校验输入，再查配置：无 key 时空消息也应是 400 而非 500（更符合预期）
+    data = request.get_json(silent=True) or {}
+    user_msg = (data.get("message") or "").strip()
+    if not user_msg:
+        return jsonify({"error": "message 不能为空"}), 400
+
+    if client is None:
+        return jsonify({"error": "服务器未配置 LLM_API_KEY，请在服务器 .env 中设置"}), 500
+
+    def generate():
+        try:
+            stream = client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_msg},
+                ],
+                stream=True,
+            )
+            for chunk in stream:
+                # 某些 chunk 可能没有 choices（如首块角色声明），需跳过
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception:
+            # 安全：流中出错也只发通用提示，完整堆栈写日志
+            logger.exception("LLM stream failed")
+            yield f"data: {json.dumps({'error': '调用大模型失败，请稍后重试'}, ensure_ascii=False)}\n\n"
+
+    # X-Accel-Buffering: no 让 Nginx 不缓冲，保证 SSE 实时推送到浏览器
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/tts")
 def tts():
     """把文本转成语音（腾讯云 TTS）。未配置密钥时返回 501，前端会降级到本地语音。"""
@@ -122,7 +175,7 @@ def tts():
     text = text[:2000]  # 限制长度，防止滥用
     try:
         from tencentcloud.common import credential
-        from tencentcloud.tts.v20190823 import tts_client, models
+        from tencentcloud.tts.v20190823 import models, tts_client
         cred = credential.Credential(TENCENT_SECRET_ID, TENCENT_SECRET_KEY)
         client = tts_client.TtsClient(cred, TTS_REGION)
         req = models.TextToVoiceRequest()
