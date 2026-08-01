@@ -96,7 +96,7 @@ def chat():
         )
         reply = resp.choices[0].message.content
         return jsonify(reply=reply)
-    except Exception:  # noqa: BLE001  pylint: disable=broad-except
+    except Exception:
         # 安全：不向前端暴露异常细节，仅返回通用提示，完整错误写日志
         logger.exception("LLM call failed")
         return jsonify({"error": "调用大模型失败，请稍后重试"}), 500
