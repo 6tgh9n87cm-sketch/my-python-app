@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NOVA // 声音试听选择器</title>
+  <style>
+    :root {
+      --cyan: #00e5ff;
+      --bg: #04070d;
+      --panel: rgba(10, 20, 32, 0.78);
+      --grid: rgba(0, 229, 255, 0.06);
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "JetBrains Mono", "Consolas", "Courier New", monospace;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(0,229,255,0.10), transparent 60%),
+        linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 40px 40px,
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 40px 40px,
+        var(--bg);
+      color: #cfe9f2; margin: 0; padding: 24px;
+      display: flex; justify-content: center;
+    }
+    .container { width: 100%; max-width: 680px; }
+    header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 18px; border: 1px solid rgba(0,229,255,0.25);
+      border-radius: 14px 14px 0 0; background: linear-gradient(180deg, rgba(0,229,255,0.08), transparent);
+    }
+    .logo {
+      width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--cyan);
+      box-shadow: 0 0 14px var(--cyan); display: flex; align-items: center; justify-content: center;
+      color: var(--cyan); font-weight: 700; animation: spin 8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .title b { color: var(--cyan); letter-spacing: 2px; }
+    .title small { display: block; opacity: .55; font-size: 11px; }
+    .body { border: 1px solid rgba(0,229,255,0.25); border-top: none; border-radius: 0 0 14px 14px;
+      background: var(--panel); padding: 18px; backdrop-filter: blur(6px); }
+    .sample-box { margin-bottom: 18px; }
+    .sample-box label { display: block; font-size: 12px; opacity: .7; margin-bottom: 6px; }
+    #sampleText {
+      width: 100%; min-height: 60px; padding: 12px; border-radius: 8px;
+      border: 1px solid rgba(0,229,255,0.25); background: rgba(0,0,0,0.35);
+      color: #cfe9f2; font-family: inherit; font-size: 14px; resize: vertical; outline: none;
+    }
+    #sampleText:focus { border-color: var(--cyan); box-shadow: 0 0 10px rgba(0,229,255,0.25); }
+    .voice-card {
+      display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 10px;
+      border: 1px solid rgba(0,229,255,0.18); border-radius: 10px;
+      background: rgba(0,229,255,0.04); transition: .15s;
+    }
+    .voice-card:hover { border-color: rgba(0,229,255,0.5); box-shadow: 0 0 12px rgba(0,229,255,0.12); }
+    .info { flex: 1; }
+    .vname { font-size: 14px; color: #e6f6fb; }
+    .vtag { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 8px; margin-left: 8px;
+      background: rgba(0,229,255,0.12); color: var(--cyan); vertical-align: middle; }
+    .vmeta { font-size: 11px; opacity: .6; margin-top: 4px; }
+    .tryBtn {
+      flex: 0 0 auto; padding: 9px 16px; border: 1px solid var(--cyan); border-radius: 8px;
+      background: var(--cyan); color: #04070d; cursor: pointer; font-weight: 700; font-family: inherit; font-size: 13px;
+    }
+    .tryBtn:hover { box-shadow: 0 0 14px var(--cyan); }
+    .tryBtn:disabled { opacity: .5; cursor: default; box-shadow: none; }
+    .hint { font-size: 12px; opacity: .7; line-height: 1.6; margin-top: 16px;
+      border-top: 1px solid rgba(0,229,255,0.15); padding-top: 14px; }
+    .hint b { color: var(--cyan); }
+    .empty { opacity: .7; padding: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">N</div>
+      <div class="title">
+        <b>NOVA</b>
+        <small>语音引擎试听选择器</small>
+      </div>
+    </header>
+    <div class="body">
+      <div class="sample-box">
+        <label>试听文本（可修改，所有声音读同一段话方便对比）：</label>
+        <textarea id="sampleText">你好，我是 NOVA。检测到周围信号稳定，系统已就绪，等待你的指令。今天天气不错，要不要一起聊聊天？</textarea>
+      </div>
+      <div id="voiceList"></div>
+      <p class="hint">
+        📌 <b>用法</b>：点击每条右边的「试听」按钮，听不同声音读同一段话。觉得哪个顺耳，记下编号告诉我，我就把 NOVA 换成那个声音。<br><br>
+        💡 这些是你电脑/Edge 已装的<b>本地神经语音</b>。如果列表里没有你喜欢的自然声音，还有更顶级的<b>微软 Azure 云端神经语音</b>（云希、云扬、晓梦、晓萱等 20+ 种，质量远超本地），需要我帮你接一个免费 Key 就能用——告诉我"想试云端声音"即可。
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const sampleText = document.getElementById("sampleText");
+    const listEl = document.getElementById("voiceList");
+
+    // 根据微软语音命名推断性别/角色，仅作展示标注
+    const FEMALE = ["Xiaoxiao","Xiaoyi","Xiaomeng","Xiaoxuan","Xiaorui","Xiaoyou","Xiaobei","Xiaomin","Xiaoran","Xiaoxiao","Huihui","Yaoyao","Meijia","Lili","Tingting","Sinji","Yunxia","Xiaoyun","Xiaoping","Xiaowen","Xiaozhen","Xiaoming"];
+    const MALE = ["Yunxi","Yunyang","Yunjian","Yunye","Kangkang","Yunzhe","Yunhao","Yunpeng"];
+
+    function genderOf(name) {
+      for (const f of FEMALE) if (name.includes(f)) return "女声";
+      for (const m of MALE) if (name.includes(m)) return "男声";
+      return "";
+    }
+
+    function renderList() {
+      const vs = speechSynthesis.getVoices();
+      const zh = vs.filter(v => v.lang && v.lang.toLowerCase().replace("_", "-").startsWith("zh"));
+      listEl.innerHTML = "";
+      if (zh.length === 0) {
+        listEl.innerHTML = '<div class="empty">未检测到中文语音。请用 <b>Edge 浏览器</b> 打开本页；若仍为空，需在 Windows 设置 → 时间和语言 → 语音 → 管理语音 → 下载中文（在线神经）语音包。</div>';
+        return;
+      }
+      // 排序：在线神经语音优先
+      zh.sort((a, b) => (b.name.includes("Online") ? 1 : 0) - (a.name.includes("Online") ? 1 : 0));
+      zh.forEach((v, i) => {
+        const g = genderOf(v.name);
+        const card = document.createElement("div");
+        card.className = "voice-card";
+        const tag = v.name.includes("Online") ? '<span class="vtag">在线神经</span>' : "";
+        const gtag = g ? '<span class="vtag">' + g + '</span>' : "";
+        card.innerHTML =
+          '<div class="info">' +
+            '<div class="vname">' + (i + 1) + '. ' + v.name + tag + gtag + '</div>' +
+            '<div class="vmeta">' + v.lang + '</div>' +
+          '</div>' +
+          '<button class="tryBtn">试听</button>';
+        const btn = card.querySelector(".tryBtn");
+        btn.addEventListener("click", () => {
+          const u = new SpeechSynthesisUtterance(sampleText.value);
+          u.voice = v;
+          u.lang = v.lang;
+          u.rate = 1.02;
+          u.pitch = 0.95;
+          speechSynthesis.cancel();
+          speechSynthesis.speak(u);
+        });
+        listEl.appendChild(card);
+      });
+    }
+
+    if ("speechSynthesis" in window) {
+      renderList();
+      speechSynthesis.onvoiceschanged = renderList;
+    } else {
+      listEl.innerHTML = '<div class="empty">当前浏览器不支持语音合成，请用 Edge 或 Chrome 打开。</div>';
+    }
+  </script>
+</body>
+</html>

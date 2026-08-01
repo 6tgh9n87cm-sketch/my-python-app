@@ -190,8 +190,27 @@
       speechSynthesis.onvoiceschanged = refreshVoices;
     }
 
-    function speak(text) {
-      if (!voiceOn || !("speechSynthesis" in window)) return;
+    let currentAudio = null;
+    async function speak(text) {
+      if (!voiceOn) return;
+      // 优先用 OpenAI TTS（GPT 同款自然声音）；失败或无 Key 自动降级本地语音
+      try {
+        const res = await fetch("/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          if (currentAudio) { currentAudio.pause(); URL.revokeObjectURL(currentAudio.src); }
+          currentAudio = new Audio(url);
+          currentAudio.play().catch(() => {});
+          return;
+        }
+      } catch (e) { /* 忽略，走本地降级 */ }
+      // 降级：浏览器本地 Web Speech API
+      if (!("speechSynthesis" in window)) return;
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "zh-CN";
       if (zhVoice) u.voice = zhVoice;
@@ -206,7 +225,10 @@
       voiceOn = !voiceOn;
       voiceBtn.textContent = voiceOn ? "🔊" : "🔇";
       voiceBtn.classList.toggle("off", !voiceOn);
-      if (!voiceOn && "speechSynthesis" in window) window.speechSynthesis.cancel();
+      if (!voiceOn) {
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+      }
     });
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;

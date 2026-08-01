@@ -9,7 +9,9 @@
 import logging
 import os
 
-from flask import Flask, jsonify, request, send_from_directory
+import requests
+
+from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 from openai import OpenAI
 
@@ -37,6 +39,10 @@ _load_env()
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
+
+# ---------- 语音合成（TTS）：OpenAI 同款引擎，用于发出 GPT 风格的自然声音 ----------
+TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
+TTS_VOICE = os.environ.get("TTS_VOICE", "nova")  # nova / shimmer / onyx 等
 
 # ---------- 科幻 AI 人格设定：NOVA ----------
 SYSTEM_PROMPT = (
@@ -100,6 +106,40 @@ def chat():
         # 安全：不向前端暴露异常细节，仅返回通用提示，完整错误写日志
         logger.exception("LLM call failed")
         return jsonify({"error": "调用大模型失败，请稍后重试"}), 500
+
+
+@app.post("/tts")
+def tts():
+    """把文本转成语音（OpenAI TTS）。未配置 Key 时返回 501，前端会降级到本地语音。"""
+    if not TTS_API_KEY:
+        return jsonify({"error": "TTS 未配置"}), 501
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "text 不能为空"}), 400
+    text = text[:2000]  # 限制长度，防止滥用
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/audio/speech",
+            headers={
+                "Authorization": f"Bearer {TTS_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "tts-1",
+                "input": text,
+                "voice": TTS_VOICE,
+                "response_format": "mp3",
+            },
+            timeout=30,
+        )
+    except Exception:
+        logger.exception("TTS request failed")
+        return jsonify({"error": "TTS 请求失败"}), 502
+    if r.status_code != 200:
+        logger.error("TTS upstream error %s: %s", r.status_code, r.text[:200])
+        return jsonify({"error": "TTS 生成失败"}), 502
+    return Response(r.content, mimetype="audio/mpeg")
 
 
 def main() -> None:
