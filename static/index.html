@@ -56,6 +56,14 @@
     .title b { color: var(--cyan); letter-spacing: 2px; font-size: 16px; }
     .title small { display: block; opacity: .6; font-size: 11px; letter-spacing: 1px; }
     .status { font-size: 11px; color: #4be39a; display: flex; align-items: center; gap: 6px; }
+    #voiceBtn {
+      margin-left: 10px; width: 34px; height: 34px; border-radius: 50%;
+      border: 1px solid rgba(0,229,255,0.4); background: rgba(0,229,255,0.06);
+      color: var(--cyan); cursor: pointer; font-size: 15px;
+      display: flex; align-items: center; justify-content: center; transition: .2s;
+    }
+    #voiceBtn:hover { box-shadow: 0 0 12px var(--cyan); }
+    #voiceBtn.off { opacity: .45; border-color: #6c7a89; color: #6c7a89; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #4be39a; box-shadow: 0 0 8px #4be39a; animation: blink 1.6s infinite; }
     @keyframes blink { 50% { opacity: .25; } }
 
@@ -110,6 +118,7 @@
         <small>高级人工智能 · NEURAL OPERATIVE VISUAL ASSISTANT</small>
       </div>
       <div class="status"><span class="dot"></span> SYSTEM ONLINE</div>
+      <button id="voiceBtn" title="语音播报开关">🔊</button>
     </header>
     <div id="chat"></div>
     <div class="controls">
@@ -159,14 +168,46 @@
       }
     }
 
-    function speak(text) {
+    let voiceOn = true;
+    let zhVoice = null;
+
+    function refreshVoices() {
       if (!("speechSynthesis" in window)) return;
+      const vs = speechSynthesis.getVoices();
+      const zh = vs.filter(v => v.lang && v.lang.toLowerCase().replace("_", "-").startsWith("zh"));
+      // 优先选自然/神经语音（Edge 在线微软语音最好听），其次本地微软语音
+      const prefer = ["Xiaoxiao", "Yunxi", "Xiaoyi", "Yunjian", "Natural", "Online",
+                      "Huihui", "Yaoyao", "Kangkang", "Tingting", "Sinji", "Meijia", "Lili"];
+      zhVoice = null;
+      for (const key of prefer) {
+        const hit = zh.find(v => v.name.includes(key));
+        if (hit) { zhVoice = hit; break; }
+      }
+      if (!zhVoice) zhVoice = zh[0] || null;
+    }
+    if ("speechSynthesis" in window) {
+      refreshVoices();
+      speechSynthesis.onvoiceschanged = refreshVoices;
+    }
+
+    function speak(text) {
+      if (!voiceOn || !("speechSynthesis" in window)) return;
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "zh-CN";
+      if (zhVoice) u.voice = zhVoice;
       u.rate = 1.02;
+      u.pitch = 0.95;
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
     }
+
+    const voiceBtn = document.getElementById("voiceBtn");
+    voiceBtn.addEventListener("click", () => {
+      voiceOn = !voiceOn;
+      voiceBtn.textContent = voiceOn ? "🔊" : "🔇";
+      voiceBtn.classList.toggle("off", !voiceOn);
+      if (!voiceOn && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    });
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognizer = null, listening = false;
