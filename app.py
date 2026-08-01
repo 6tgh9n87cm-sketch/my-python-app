@@ -9,7 +9,7 @@
 import logging
 import os
 
-import requests
+import base64
 
 from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
@@ -40,9 +40,11 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-chat")
 
-# ---------- 语音合成（TTS）：OpenAI 同款引擎，用于发出 GPT 风格的自然声音 ----------
-TTS_API_KEY = os.environ.get("TTS_API_KEY", "")
-TTS_VOICE = os.environ.get("TTS_VOICE", "nova")  # nova / shimmer / onyx 等
+# ---------- 语音合成（TTS）：腾讯云智聆语音，中文自然度高 ----------
+TENCENT_SECRET_ID = os.environ.get("TENCENT_SECRET_ID", "")
+TENCENT_SECRET_KEY = os.environ.get("TENCENT_SECRET_KEY", "")
+TTS_VOICE_TYPE = int(os.environ.get("TTS_VOICE_TYPE", "101006"))  # 101006=智言(精品助手女声)
+TTS_REGION = os.environ.get("TTS_REGION", "ap-beijing")
 
 # ---------- 科幻 AI 人格设定：NOVA ----------
 SYSTEM_PROMPT = (
@@ -110,8 +112,8 @@ def chat():
 
 @app.post("/tts")
 def tts():
-    """把文本转成语音（OpenAI TTS）。未配置 Key 时返回 501，前端会降级到本地语音。"""
-    if not TTS_API_KEY:
+    """把文本转成语音（腾讯云 TTS）。未配置密钥时返回 501，前端会降级到本地语音。"""
+    if not TENCENT_SECRET_ID or not TENCENT_SECRET_KEY:
         return jsonify({"error": "TTS 未配置"}), 501
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
@@ -119,27 +121,25 @@ def tts():
         return jsonify({"error": "text 不能为空"}), 400
     text = text[:2000]  # 限制长度，防止滥用
     try:
-        r = requests.post(
-            "https://api.openai.com/v1/audio/speech",
-            headers={
-                "Authorization": f"Bearer {TTS_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "tts-1",
-                "input": text,
-                "voice": TTS_VOICE,
-                "response_format": "mp3",
-            },
-            timeout=30,
-        )
+        from tencentcloud.common import credential
+        from tencentcloud.tts.v20190823 import tts_client, models
+        cred = credential.Credential(TENCENT_SECRET_ID, TENCENT_SECRET_KEY)
+        client = tts_client.TtsClient(cred, TTS_REGION)
+        req = models.TextToVoiceRequest()
+        req.Text = text
+        req.VoiceType = TTS_VOICE_TYPE
+        req.Codec = "mp3"
+        req.SampleRate = 16000
+        req.Volume = 5
+        req.Speed = 0
+        resp = client.TextToVoice(req)
+        if not resp.Audio:
+            return jsonify({"error": "TTS 返回为空"}), 502
+        audio_bytes = base64.b64decode(resp.Audio)
+        return Response(audio_bytes, mimetype="audio/mpeg")
     except Exception:
         logger.exception("TTS request failed")
-        return jsonify({"error": "TTS 请求失败"}), 502
-    if r.status_code != 200:
-        logger.error("TTS upstream error %s: %s", r.status_code, r.text[:200])
         return jsonify({"error": "TTS 生成失败"}), 502
-    return Response(r.content, mimetype="audio/mpeg")
 
 
 def main() -> None:
