@@ -107,6 +107,18 @@
     #status { text-align: center; font-size: 12px; min-height: 16px; color: var(--cyan); opacity: .85; padding-bottom: 6px; }
     #chat::-webkit-scrollbar { width: 6px; }
     #chat::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.3); border-radius: 3px; }
+
+    /* ---------- 声音选择器 ---------- */
+    .voice-picker { position: relative; margin-left: 8px; }
+    #voicePickerBtn { background: none; border: 1px solid var(--cyan); color: var(--cyan); border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 16px; transition: box-shadow 0.2s; }
+    #voicePickerBtn:hover { box-shadow: 0 0 12px var(--cyan); }
+    .voice-menu { display: none; position: absolute; right: 0; top: 38px; background: rgba(8, 14, 24, 0.98); border: 1px solid var(--cyan); border-radius: 8px; min-width: 220px; max-height: 300px; overflow-y: auto; z-index: 100; box-shadow: 0 0 20px rgba(0,229,255,0.3); }
+    .voice-menu.open { display: block; }
+    .voice-item { display: block; width: 100%; padding: 10px 14px; background: none; border: none; border-bottom: 1px solid rgba(0,229,255,0.1); color: var(--cyan); text-align: left; cursor: pointer; font-size: 13px; font-family: monospace; transition: background 0.15s; }
+    .voice-item:last-child { border-bottom: none; }
+    .voice-item:hover { background: rgba(0,229,255,0.15); }
+    .voice-item.active { background: rgba(0,229,255,0.25); font-weight: bold; }
+    .voice-item.active::before { content: "✓ "; }
   </style>
 </head>
 <body>
@@ -119,6 +131,10 @@
       </div>
       <div class="status"><span class="dot"></span> SYSTEM ONLINE</div>
       <button id="voiceBtn" title="语音播报开关">🔊</button>
+      <div class="voice-picker">
+        <button id="voicePickerBtn" title="选择中文声音">🎙️</button>
+        <div id="voiceMenu" class="voice-menu"></div>
+      </div>
     </header>
     <div id="chat"></div>
     <div class="controls">
@@ -171,20 +187,56 @@
     let voiceOn = true;
     let zhVoice = null;
 
+    // ---------- 中文声音选择器：弹出菜单让用户选最自然的 ----------
+    const VOICE_KEY = "nova_voice_uri";
     function refreshVoices() {
       if (!("speechSynthesis" in window)) return;
       const vs = speechSynthesis.getVoices();
       const zh = vs.filter(v => v.lang && v.lang.toLowerCase().replace("_", "-").startsWith("zh"));
-      // 优先选自然/神经语音（Edge 在线微软语音最好听），其次本地微软语音
-      const prefer = ["Xiaoxiao", "Yunxi", "Xiaoyi", "Yunjian", "Natural", "Online",
-                      "Huihui", "Yaoyao", "Kangkang", "Tingting", "Sinji", "Meijia", "Lili"];
+      // 优先用用户保存的；否则优先选神经/在线语音（Edge 在线微软语音最好听）
+      const saved = localStorage.getItem(VOICE_KEY);
       zhVoice = null;
-      for (const key of prefer) {
-        const hit = zh.find(v => v.name.includes(key));
-        if (hit) { zhVoice = hit; break; }
+      if (saved) {
+        const hit = zh.find(v => v.voiceURI === saved);
+        if (hit) zhVoice = hit;
+      }
+      if (!zhVoice) {
+        const prefer = ["Xiaoxiao", "Yunxi", "Xiaoyi", "Yunjian", "Xiaohan", "Xiaomo",
+                        "Xiaoxuan", "Xiaomeng", "Xiaorui", "Natural", "Online",
+                        "Huihui", "Yaoyao", "Kangkang", "Tingting", "Sinji", "Meijia", "Lili"];
+        for (const key of prefer) {
+          const hit = zh.find(v => v.name.includes(key));
+          if (hit) { zhVoice = hit; break; }
+        }
       }
       if (!zhVoice) zhVoice = zh[0] || null;
+      buildVoiceMenu(zh);
     }
+
+    function buildVoiceMenu(zh) {
+      const menu = document.getElementById("voiceMenu");
+      if (!menu) return;
+      menu.innerHTML = "";
+      zh.forEach(v => {
+        const btn = document.createElement("button");
+        btn.className = "voice-item" + (zhVoice && v.voiceURI === zhVoice.voiceURI ? " active" : "");
+        btn.textContent = v.name;
+        btn.addEventListener("click", () => {
+          zhVoice = v;
+          localStorage.setItem(VOICE_KEY, v.voiceURI);
+          refreshVoices();
+          // 试听
+          const u = new SpeechSynthesisUtterance("你好，我是NOVA，这是新的声音。");
+          u.lang = "zh-CN";
+          u.voice = v;
+          u.rate = 1.02; u.pitch = 0.95;
+          speechSynthesis.cancel();
+          speechSynthesis.speak(u);
+        });
+        menu.appendChild(btn);
+      });
+    }
+
     if ("speechSynthesis" in window) {
       refreshVoices();
       speechSynthesis.onvoiceschanged = refreshVoices;
@@ -225,6 +277,23 @@
       voiceOn = !voiceOn;
       voiceBtn.textContent = voiceOn ? "🔊" : "🔇";
       voiceBtn.classList.toggle("off", !voiceOn);
+      if (!voiceOn && "speechSynthesis" in window) window.speechSynthesis.cancel();
+    });
+
+    // ---------- 声音选择器：点击 🎙️ 打开声音菜单 ----------
+    const voicePickerBtn = document.getElementById("voicePickerBtn");
+    const voiceMenu = document.getElementById("voiceMenu");
+    if (voicePickerBtn && voiceMenu) {
+      voicePickerBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        voiceMenu.classList.toggle("open");
+      });
+      document.addEventListener("click", (e) => {
+        if (!voiceMenu.contains(e.target) && e.target !== voicePickerBtn) {
+          voiceMenu.classList.remove("open");
+        }
+      });
+    }
       if (!voiceOn) {
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
         if (currentAudio) { currentAudio.pause(); currentAudio = null; }
