@@ -236,7 +236,7 @@ def asr():
 
         req = models.SentenceRecognitionRequest()
         req.EngSerViceType = "16k_zh"     # 16k 中文普通话
-        req.SourceType = 0                # 0=本地音频字节
+        req.SourceType = 1                # ⚠️ SDK 文档：0=URL（需传Url），1=本地音频字节（需传Data+DataLen）
         req.VoiceFormat = "wav"
         req.Data = base64.b64encode(audio_bytes).decode()
         req.DataLen = len(audio_bytes)
