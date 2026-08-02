@@ -154,17 +154,6 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt
 
-            # ===== 修复 .env 权限并确保 EnvironmentFile 生效 =====
-            # 确保 .env 可被 systemd 读取（644 权限，属主 deploy）
-            sudo chmod 644 "${{ env.DEPLOY_PATH }}/.env"
-            sudo chown deploy:deploy "${{ env.DEPLOY_PATH }}/.env"
-
-            # 确认 EnvironmentFile 已写入 service（幂等）
-            if ! sudo grep -q "EnvironmentFile=${{ env.DEPLOY_PATH }}/.env" /etc/systemd/system/"${{ env.SERVICE_NAME }}".service; then
-              sudo sed -i "/\\[Service\\]/a EnvironmentFile=${{ env.DEPLOY_PATH }}/.env" /etc/systemd/system/"${{ env.SERVICE_NAME }}".service
-              sudo systemctl daemon-reload
-            fi
-
             # ===== 重启服务 =====
             sudo systemctl restart "${{ env.SERVICE_NAME }}"
 
