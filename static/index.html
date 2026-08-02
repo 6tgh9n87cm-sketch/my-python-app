@@ -604,31 +604,106 @@
       });
     }
 
-    // ============ 语音输入（保留原逻辑） ============
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognizer = null, listening = false;
-    if (SR) {
-      recognizer = new SR();
-      recognizer.lang = "zh-CN";
-      recognizer.interimResults = false;
-      recognizer.onresult = (e) => ask(e.results[0][0].transcript);
-      recognizer.onerror = (e) => {
-        statusEl.textContent = "语音识别出错：" + e.error + "（需 HTTPS 才能用麦克风）";
-        listening = false; micBtn.classList.remove("listening");
-      };
-      recognizer.onend = () => { if (listening) recognizer.start(); };
-    } else {
-      micBtn.disabled = true; micBtn.style.opacity = .4; micBtn.title = "浏览器不支持语音";
+    // ============ 语音输入（腾讯云 ASR：录音 → 上传识别）
+    // Chrome 的 webkitSpeechRecognition 强依赖 Google 服务，中国大陆不可用，
+    // 改用：getUserMedia + AudioContext 采 16kHz PCM → 封装 WAV → POST /asr（腾讯云一句话识别）
+    let audioStream = null, audioCtx = null, processor = null, sourceNode = null;
+    let pcmChunks = [];
+    let isRecording = false;
+    let asrBusy = false;
+
+    // 把 Int16 PCM 封装成 WAV（16kHz 单声道）
+    function encodeWAV(samples, sampleRate) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+      writeStr(0, "RIFF");
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeStr(8, "WAVE");
+      writeStr(12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);              // PCM
+      view.setUint16(22, 1, true);              // mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true); // byte rate
+      view.setUint16(32, 2, true);              // block align
+      view.setUint16(34, 16, true);             // bits per sample
+      writeStr(36, "data");
+      view.setUint32(40, samples.length * 2, true);
+      for (let i = 0; i < samples.length; i++) view.setInt16(44 + i * 2, samples[i], true);
+      return new Blob([view], { type: "audio/wav" });
+    }
+
+    async function startRecording() {
+      try {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        sourceNode = audioCtx.createMediaStreamSource(audioStream);
+        processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        pcmChunks = [];
+        processor.onaudioprocess = (e) => {
+          const data = e.inputBuffer.getChannelData(0);
+          const int16 = new Int16Array(data.length);
+          for (let i = 0; i < data.length; i++) int16[i] = Math.max(-1, Math.min(1, data[i])) * 0x7fff;
+          pcmChunks.push(int16);
+        };
+        sourceNode.connect(processor);
+        processor.connect(audioCtx.destination); // 防止 GC，输出占位（无声）
+        isRecording = true;
+      } catch (e) {
+        statusEl.textContent = "麦克风不可用：" + (e.name === "NotAllowedError" ? "请在地址栏允许麦克风权限" : e.message);
+        micBtn.classList.remove("listening");
+      }
+    }
+
+    function stopRecording() {
+      isRecording = false;
+      try {
+        processor.disconnect(); sourceNode.disconnect();
+        audioCtx.close();
+        audioStream.getTracks().forEach(t => t.stop());
+      } catch (e) { /* 忽略清理错误 */ }
+
+      const total = pcmChunks.reduce((n, c) => n + c.length, 0);
+      const pcm = new Int16Array(total);
+      let off = 0;
+      for (const c of pcmChunks) { pcm.set(c, off); off += c.length; }
+      if (pcm.length < 2400) { statusEl.textContent = "没听到声音，请重试"; return; }  // <0.15s 视为无效
+
+      const wav = encodeWAV(pcm, 16000);
+      uploadASR(wav);
+    }
+
+    async function uploadASR(wavBlob) {
+      asrBusy = true;
+      micBtn.disabled = true;
+      statusEl.textContent = "> 识别中…";
+      try {
+        const form = new FormData();
+        form.append("audio", wavBlob, "voice.wav");
+        const res = await fetch("/asr", { method: "POST", body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "识别失败");
+        const text = (data.text || "").trim();
+        if (text) { textInput.value = ""; ask(text); }
+        else statusEl.textContent = "没听清，请再说一遍";
+      } catch (e) {
+        statusEl.textContent = "识别出错：" + e.message;
+      } finally {
+        asrBusy = false;
+        micBtn.disabled = false;
+      }
     }
 
     micBtn.addEventListener("click", () => {
-      if (!recognizer) return;
-      if (!listening) {
-        recognizer.start(); listening = true; micBtn.classList.add("listening");
+      if (asrBusy || streaming) return;
+      if (!isRecording) {
+        micBtn.classList.add("listening");
         statusEl.textContent = "> 聆听中…";
+        startRecording();
       } else {
-        recognizer.stop(); listening = false; micBtn.classList.remove("listening");
-        statusEl.textContent = "";
+        micBtn.classList.remove("listening");
+        stopRecording();
       }
     });
 

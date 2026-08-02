@@ -47,6 +47,9 @@ TENCENT_SECRET_KEY = os.environ.get("TENCENT_SECRET_KEY", "")
 TTS_VOICE_TYPE = int(os.environ.get("TTS_VOICE_TYPE", "101006"))  # 101006=智言(精品助手女声)
 TTS_REGION = os.environ.get("TTS_REGION", "ap-beijing")
 
+# ---------- 语音识别（ASR）：腾讯云一句话识别，16k 中文 ----------
+ASR_REGION = os.environ.get("ASR_REGION", "ap-guangzhou")
+
 # ---------- 科幻 AI 人格设定：NOVA ----------
 SYSTEM_PROMPT = (
     "你是一个名为 NOVA 的高级人工智能，诞生于近未来。\n"
@@ -193,6 +196,55 @@ def tts():
     except Exception:
         logger.exception("TTS request failed")
         return jsonify({"error": "TTS 生成失败"}), 502
+
+
+@app.post("/asr")
+def asr():
+    """语音识别：前端上传 WAV 音频，腾讯云一句话识别返回文字。
+
+    前端用 AudioContext 采集 16kHz 单声道 PCM 并封装 WAV 后上传，
+    替代 Chrome 的 webkitSpeechRecognition（中国大陆连不上 Google 服务）。
+    """
+    # 先校验输入，再查配置（无 key 时空音频也应是 400 而非 501）
+    # 支持 multipart 文件字段 audio，或直接 raw body
+    audio_file = request.files.get("audio")
+    if audio_file is not None:
+        audio_bytes = audio_file.read()
+    else:
+        audio_bytes = request.get_data(cache=True)
+
+    if not audio_bytes:
+        return jsonify({"error": "audio 不能为空"}), 400
+    if len(audio_bytes) > 4 * 1024 * 1024:  # 限制 4MB，一句话识别足够
+        return jsonify({"error": "音频过大"}), 413
+
+    if not TENCENT_SECRET_ID or not TENCENT_SECRET_KEY:
+        return jsonify({"error": "ASR 未配置"}), 501
+
+    try:
+        from tencentcloud.asr.v20190614 import asr_client, models
+        from tencentcloud.common import credential
+        from tencentcloud.common.profile.client_profile import ClientProfile
+        from tencentcloud.common.profile.http_profile import HttpProfile
+        cred = credential.Credential(TENCENT_SECRET_ID, TENCENT_SECRET_KEY)
+        http_profile = HttpProfile()
+        http_profile.endpoint = "asr.tencentcloudapi.com"
+        client_profile = ClientProfile()
+        client_profile.httpProfile = http_profile
+        client = asr_client.AsrClient(cred, ASR_REGION, client_profile)
+
+        req = models.SentenceRecognitionRequest()
+        req.EngSerViceType = "16k_zh"     # 16k 中文普通话
+        req.SourceType = 0                # 0=本地音频字节
+        req.VoiceFormat = "wav"
+        req.Data = base64.b64encode(audio_bytes).decode()
+        req.DataLen = len(audio_bytes)
+        resp = client.SentenceRecognition(req)
+        return jsonify(text=resp.Result or "")
+    except Exception:
+        # 安全：不暴露细节，完整错误写日志
+        logger.exception("ASR request failed")
+        return jsonify({"error": "语音识别失败，请稍后重试"}), 502
 
 
 def main() -> None:

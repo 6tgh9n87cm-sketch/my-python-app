@@ -104,3 +104,67 @@ def test_chat_stream_no_key_returns_500(monkeypatch) -> None:
     monkeypatch.setattr("app.client", None)
     resp = app.test_client().post("/chat/stream", json={"message": "hi"})
     assert resp.status_code == 500
+
+
+# ---------- 语音识别 /asr 测试 ----------
+
+
+def _make_wav(n_samples: int = 8000) -> bytes:
+    """生成最小合法 WAV（44 字节头 + 16kHz 单声道 PCM）。"""
+    import struct
+    return struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF", 36 + n_samples * 2, b"WAVE", b"fmt ",
+        16, 1, 1, 16000, 32000, 2, 16, b"data", n_samples * 2,
+    ) + b"\x00" * (n_samples * 2)
+
+
+def test_asr_returns_text(monkeypatch) -> None:
+    """/asr 上传 WAV，mock 腾讯云返回识别文字。"""
+    import io
+
+    import tencentcloud.asr.v20190614.asr_client as asr_client_module
+
+    class _FakeResp:
+        Result = "你好NOVA"
+
+    class _FakeAsrClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def SentenceRecognition(self, req):
+            assert req.EngSerViceType == "16k_zh"
+            assert req.VoiceFormat == "wav"
+            assert req.SourceType == 0
+            return _FakeResp()
+
+    monkeypatch.setattr(asr_client_module, "AsrClient", _FakeAsrClient)
+    monkeypatch.setattr("app.TENCENT_SECRET_ID", "test_id")
+    monkeypatch.setattr("app.TENCENT_SECRET_KEY", "test_key")
+
+    resp = app.test_client().post(
+        "/asr",
+        data={"audio": (io.BytesIO(_make_wav()), "voice.wav")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["text"] == "你好NOVA"
+
+
+def test_asr_no_key_returns_501(monkeypatch) -> None:
+    """/asr 未配置腾讯云密钥时返回 501。"""
+    import io
+    monkeypatch.setattr("app.TENCENT_SECRET_ID", "")
+    monkeypatch.setattr("app.TENCENT_SECRET_KEY", "")
+    resp = app.test_client().post(
+        "/asr",
+        data={"audio": (io.BytesIO(b"x"), "v.wav")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 501
+
+
+def test_asr_empty_audio_returns_400() -> None:
+    """/asr 空音频返回 400。"""
+    resp = app.test_client().post("/asr", data={}, content_type="multipart/form-data")
+    assert resp.status_code == 400
