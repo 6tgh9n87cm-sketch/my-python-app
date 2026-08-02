@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>麦克风诊断页 — 第一性原理排查</title>
+<style>
+  body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
+  h1 { font-size: 18px; }
+  .row { margin: 12px 0; }
+  button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #333; color: #0f0; border: 1px solid #0f0; }
+  button.active { background: #0f0; color: #000; }
+  #meter { width: 100%; height: 40px; background: #222; position: relative; }
+  #meterBar { height: 100%; width: 0%; background: linear-gradient(90deg,#0f0,#ff0,#f00); transition: width 60ms; }
+  #meterLabel { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color:#fff; }
+  #log { white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
+  #waveform { width: 100%; height: 120px; background: #000; }
+  .err { color: #f66; }
+  .ok { color: #0f0; }
+  .warn { color: #ff0; }
+</style>
+</head>
+<body>
+<h1>🎙️ 麦克风诊断页 — 第一性原理排查</h1>
+
+<div class="row">
+  <button id="startBtn">① 开始录音（请求麦克风）</button>
+  <button id="stopBtn" disabled>② 停止录音</button>
+  <button id="playBtn" disabled>▶ 播放刚才录的</button>
+  <a id="dlBtn" style="color:#0ff;display:none" download="recorded.wav">⬇ 下载WAV</a>
+</div>
+
+<div class="row">
+  <div id="meter"><div id="meterBar"></div><div id="meterLabel">实时音量（说话时看这个）</div></div>
+</div>
+
+<div class="row">
+  <canvas id="waveform" width="800" height="120"></canvas>
+</div>
+
+<div class="row" id="log">等待操作…</div>
+
+<script>
+const log = document.getElementById("log");
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const playBtn = document.getElementById("playBtn");
+const dlBtn = document.getElementById("dlBtn");
+const meterBar = document.getElementById("meterBar");
+const meterLabel = document.getElementById("meterLabel");
+const canvas = document.getElementById("waveform");
+const ctx2d = canvas.getContext("2d");
+
+let stream = null, audioCtx = null, processor = null, sourceNode = null;
+let chunks = [], isRecording = false, rafId = null;
+let lastBlob = null, lastUrl = null;
+let sampleRateActual = 0;
+
+function w(t){ log.innerHTML += t + "\n"; }
+function clearLog(){ log.innerHTML = ""; }
+
+startBtn.onclick = async () => {
+  clearLog();
+  w("> 点击「开始录音」请求麦克风…");
+  try {
+    // 列出所有音频设备
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const mics = devs.filter(d => d.kind === "audioinput");
+      w(`检测到 ${mics.length} 个输入设备：`);
+      mics.forEach((m, i) => {
+        w(`  [${i}] ${m.label || "(无标签)"}  deviceId=${(m.deviceId||"").slice(0,12)}…`);
+      });
+      if (mics.length === 0) w("⚠️ 没有检测到任何音频输入设备！", "warn");
+    }
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    w("✅ getUserMedia 成功！", "ok");
+    const track = stream.getAudioTracks()[0];
+    w(`   轨道: ${track.label}  (${track.readyState})`);
+    w(`   采样率浏览器实际: ${track.getSettings ? (track.getSettings().sampleRate || "?") : "?"} Hz`);
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    w(`   AudioContext.sampleRate = ${audioCtx.sampleRate} Hz`);
+    sampleRateActual = audioCtx.sampleRate;
+    sourceNode = audioCtx.createMediaStreamSource(stream);
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    chunks = [];
+    processor.onaudioprocess = (e) => {
+      const data = e.inputBuffer.getChannelData(0);
+      chunks.push(new Float32Array(data));
+      // 实时音量
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+      const rms = Math.sqrt(sum / data.length);
+      const pct = Math.min(100, Math.max(0, rms * 400));
+      meterBar.style.width = pct + "%";
+      meterLabel.textContent = rms < 0.001 ? "🔇 静音（没检测到声音！）" : `🔊 有声音 RMS=${rms.toFixed(4)} 音量${Math.round(pct)}%`;
+      meterLabel.style.color = rms < 0.001 ? "#f66" : "#fff";
+    };
+    sourceNode.connect(processor);
+    processor.connect(audioCtx.destination); // 直连，这样自己能听到（测试用）
+    isRecording = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    w("🎤 录音中… 现在【说话】，看上面的音量条有没有跳动！");
+    w("   注意：如果音量条一直是「静音」，说明浏览器没拿到声音数据。");
+    drawWave();
+  } catch (e) {
+    w("❌ getUserMedia 失败: " + e.message, "err");
+    w("   name=" + (e.name || ""), "err");
+    w("   如果是 NotAllowedError：地址栏左边点🔒图标 → 网站设置 → 允许麦克风");
+    w("   如果是 NotFoundError：系统里没检测到麦克风设备（检查设备管理器/隐私设置）");
+    w("   如果是 NotReadableError：麦克风被其他程序占用（关掉微信/腾讯会议/录音机再试）");
+  }
+};
+
+stopBtn.onclick = () => {
+  if (!isRecording) return;
+  isRecording = false;
+  try {
+    processor.disconnect();
+    sourceNode.disconnect();
+    audioCtx.close();
+    stream.getTracks().forEach(t => t.stop());
+  } catch(e) {}
+  cancelAnimationFrame(rafId);
+  const total = chunks.reduce((n,c)=>n+c.length, 0);
+  const dur = total / sampleRateActual;
+  w(`\n■ 录音停止。共 ${total} 个采样点，时长约 ${dur.toFixed(2)} 秒`);
+  if (total < 1600) { w("❌ 数据太少（<0.1秒）—— 浏览器几乎没采集到任何声音！", "err"); }
+  else { w(`✅ 采集到 ${dur.toFixed(2)} 秒数据（正常说话应 2-10 秒）`, "ok"); }
+
+  // 合并 → 降采样到16000 → WAV
+  const merged = new Float32Array(total);
+  let off = 0;
+  for (const c of chunks) { merged.set(c, off); off += c.length; }
+  const pcm16 = downsample(merged, sampleRateActual, 16000);
+  const wav = encodeWAV(pcm16, 16000);
+  lastBlob = wav;
+  w(`   WAV 大小: ${(wav.size/1024).toFixed(1)} KB (${dur.toFixed(2)}s @16kHz)`);
+  playBtn.disabled = false;
+  dlBtn.style.display = "inline";
+  dlBtn.href = URL.createObjectURL(wav);
+  drawWavePCM(pcm16);
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+};
+
+function downsample(buffer, from, to) {
+  if (from === to) {
+    const out = new Int16Array(buffer.length);
+    for (let i=0;i<buffer.length;i++) out[i] = Math.max(-1,Math.min(1,buffer[i])) * 0x7fff;
+    return out;
+  }
+  const ratio = from/to;
+  const newLen = Math.round(buffer.length / ratio);
+  const result = new Int16Array(newLen);
+  let oR=0, oB=0;
+  while (oR < result.length) {
+    const nB = Math.round((oR+1)*ratio);
+    let acc=0, cnt=0;
+    for (let i=oB; i<nB && i<buffer.length; i++){ acc+=buffer[i]; cnt++; }
+    result[oR] = Math.max(-1,Math.min(1,acc/cnt)) * 0x7fff;
+    oR++; oB=nB;
+  }
+  return result;
+}
+
+function encodeWAV(samples, sampleRate) {
+  const buf = new ArrayBuffer(44 + samples.length*2);
+  const v = new DataView(buf);
+  const ws = (o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+  ws(0,"RIFF"); v.setUint32(4,36+samples.length*2,true); ws(8,"WAVE");
+  ws(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,sampleRate,true); v.setUint32(28,sampleRate*2,true);
+  v.setUint16(32,2,true); v.setUint16(34,16,true); ws(36,"data");
+  v.setUint32(40,samples.length*2,true);
+  for(let i=0;i<samples.length;i++) v.setInt16(44+i*2, samples[i], true);
+  return new Blob([v], {type:"audio/wav"});
+}
+
+playBtn.onclick = () => {
+  if (!lastBlob) return;
+  const url = URL.createObjectURL(lastBlob);
+  const a = new Audio(url);
+  a.play();
+};
+
+// 实时波形绘制
+function drawWave() {
+  if (!isRecording) return;
+  rafId = requestAnimationFrame(drawWave);
+  ctx2d.fillStyle = "#000"; ctx2d.fillRect(0,0,800,120);
+  ctx2d.strokeStyle = "#0f0"; ctx2d.beginPath();
+  const last = chunks[chunks.length-1];
+  if (last) {
+    for (let x=0;x<800;x++) {
+      const idx = Math.floor(x/800*last.length);
+      const y = 60 - last[idx]*50;
+      x===0 ? ctx2d.moveTo(x,y) : ctx2d.lineTo(x,y);
+    }
+  }
+  ctx2d.stroke();
+}
+function drawWavePCM(pcm) {
+  ctx2d.fillStyle = "#000"; ctx2d.fillRect(0,0,800,120);
+  ctx2d.strokeStyle = "#0ff"; ctx2d.beginPath();
+  for (let x=0;x<800;x++) {
+    const idx = Math.floor(x/800*pcm.length);
+    const y = 60 - pcm[idx]/32767*50;
+    x===0 ? ctx2d.moveTo(x,y) : ctx2d.lineTo(x,y);
+  }
+  ctx2d.stroke();
+}
+</script>
+</body>
+</html>
