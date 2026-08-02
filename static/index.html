@@ -711,18 +711,35 @@
       asrBusy = true;
       micBtn.disabled = true;
       statusEl.textContent = "> 识别中…";
+      // 客户端超时：后端腾讯云超时 10s，这里给 25s 余量；超时即视为后端/代理无响应
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 25000);
       try {
         const form = new FormData();
         form.append("audio", wavBlob, "voice.wav");
-        const res = await fetch("/asr", { method: "POST", body: form });
+        const res = await fetch("/asr", { method: "POST", body: form, signal: controller.signal });
+        clearTimeout(timer);
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "识别失败");
+        if (!res.ok) {
+          // 后端返回了 HTTP 错误（含腾讯云真实 detail），原样展示
+          const detail = data.detail ? "（" + data.detail + "）" : "";
+          throw new Error((data.error || ("HTTP " + res.status)) + detail);
+        }
         const text = (data.text || "").trim();
         if (text) { textInput.value = ""; ask(text); }
         else statusEl.textContent = "没听清，请再说一遍";
       } catch (e) {
-        statusEl.textContent = "识别出错：" + e.message;
+        clearTimeout(timer);
+        if (e.name === "AbortError") {
+          statusEl.textContent = "识别超时（>25s）：后端未响应，可能 Nginx 代理超时或服务器到腾讯云网络不通";
+        } else if (/Failed to fetch|NetworkError|network/i.test(e.message || "")) {
+          // fetch 原生网络错误：请求根本没到服务器（典型：Nginx 未代理 /asr）
+          statusEl.textContent = "网络错误：请求未送达服务器。可能 Nginx 未代理 /asr，或服务器不可达";
+        } else {
+          statusEl.textContent = "识别出错：" + e.message;
+        }
       } finally {
+        clearTimeout(timer);
         asrBusy = false;
         micBtn.disabled = false;
       }

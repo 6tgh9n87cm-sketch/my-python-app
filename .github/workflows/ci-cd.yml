@@ -158,6 +158,11 @@ jobs:
             # 方式 A：systemd 托管（部署账号需配置 NOPASSWD sudo 执行 systemctl）
             sudo systemctl restart "${{ env.SERVICE_NAME }}"
 
+            # 调试：打印生效的 Nginx 反向代理配置，排查 /asr 等路径是否被正确代理
+            # （定位完成后可删除此段）
+            echo "===== NGINX ACTIVE CONFIG (location/proxy) ====="
+            sudo nginx -T 2>/dev/null | grep -iE "location|proxy_pass|server_name|listen|ssl_certificate" || true
+
             # 方式 B：Docker Compose
             # docker compose -f docker-compose.yml up -d --build
 

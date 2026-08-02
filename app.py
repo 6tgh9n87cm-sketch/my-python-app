@@ -229,6 +229,7 @@ def asr():
         cred = credential.Credential(TENCENT_SECRET_ID, TENCENT_SECRET_KEY)
         http_profile = HttpProfile()
         http_profile.endpoint = "asr.tencentcloudapi.com"
+        http_profile.reqTimeout = 10   # 腾讯云 API 超时 10s，避免 gunicorn worker 卡死
         client_profile = ClientProfile()
         client_profile.httpProfile = http_profile
         client = asr_client.AsrClient(cred, ASR_REGION, client_profile)
@@ -241,10 +242,11 @@ def asr():
         req.DataLen = len(audio_bytes)
         resp = client.SentenceRecognition(req)
         return jsonify(text=resp.Result or "")
-    except Exception:
-        # 安全：不暴露细节，完整错误写日志
+    except Exception as exc:
+        # 调试期：把腾讯云真实错误透传给前端（detail 字段），便于定位卡点；
+        # 定位完成后可去掉 detail，仅保留通用 error 文案。
         logger.exception("ASR request failed")
-        return jsonify({"error": "语音识别失败，请稍后重试"}), 502
+        return jsonify({"error": "语音识别失败，请稍后重试", "detail": str(exc)}), 502
 
 
 def main() -> None:
