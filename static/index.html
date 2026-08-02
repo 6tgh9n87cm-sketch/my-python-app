@@ -662,7 +662,26 @@
 
     async function startRecording() {
       try {
-        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // 枚举所有麦克风，过滤掉"虚拟/sonar/stereo mix"这些空数据设备
+        // SteelSeries Sonar 等虚拟设备会返回静音，导致 ASR 识别成空
+        let audioConstraints = true;
+        try {
+          const devs = await navigator.mediaDevices.enumerateDevices();
+          const mics = devs.filter(d => d.kind === "audioinput");
+          // 优先选真实硬件麦克风（label 含 Realtek/Mic/Microphone Array 等关键字）
+          const realMic = mics.find(d => /realtek|mic|microphone array|internal/i.test(d.label))
+                         || mics.find(d => !/sonar|virtual|stereo mix|communications/i.test(d.label))
+                         || mics[0];
+          if (realMic && realMic.deviceId) {
+            audioConstraints = { deviceId: { exact: realMic.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+            console.log("NOVA ASR: 使用麦克风:", realMic.label || realMic.deviceId);
+          } else {
+            audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+          }
+        } catch (e) {
+          audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+        }
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();  // 不强制采样率，用浏览器真实值
         sourceNode = audioCtx.createMediaStreamSource(audioStream);
         processor = audioCtx.createScriptProcessor(4096, 1, 1);
