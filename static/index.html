@@ -662,26 +662,38 @@
 
     async function startRecording() {
       try {
-        // 枚举所有麦克风，过滤掉"虚拟/sonar/stereo mix"这些空数据设备
-        // SteelSeries Sonar 等虚拟设备会返回静音，导致 ASR 识别成空
-        let audioConstraints = true;
+        // 第 1 步：先获取麦克风权限（不带 deviceId，让 Chrome 用默认）
+        // 这样才能在 enumerateDevices 里拿到真实的 label
+        const firstStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const defaultDeviceId = firstStream.getAudioTracks()[0].getSettings().deviceId;
+        firstStream.getTracks().forEach(t => t.stop());  // 立刻释放，会重新选择设备
+
+        // 第 2 步：枚举设备（此时 label 不再为空）
+        let realDeviceId = null;
         try {
           const devs = await navigator.mediaDevices.enumerateDevices();
           const mics = devs.filter(d => d.kind === "audioinput");
-          // 优先选真实硬件麦克风（label 含 Realtek/Mic/Microphone Array 等关键字）
+          // 排除 SteelSeries Sonar / Virtual / Stereo Mix 等虚拟/无声设备
           const realMic = mics.find(d => /realtek|mic|microphone array|internal/i.test(d.label))
-                         || mics.find(d => !/sonar|virtual|stereo mix|communications/i.test(d.label))
-                         || mics[0];
-          if (realMic && realMic.deviceId) {
-            audioConstraints = { deviceId: { exact: realMic.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-            console.log("NOVA ASR: 使用麦克风:", realMic.label || realMic.deviceId);
-          } else {
-            audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-          }
+                         || mics.find(d => !/sonar|virtual|stereo mix|communications|waveterm/i.test(d.label))
+                         || null;
+          realDeviceId = realMic ? realMic.deviceId : (defaultDeviceId || null);
+          const label = realMic ? realMic.label : "默认";
+          console.log("NOVA ASR: 使用麦克风:", label, realDeviceId ? `(id=${realDeviceId.slice(0,8)}...)` : "");
         } catch (e) {
-          audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+          console.warn("NOVA ASR: 枚举设备失败，用默认", e);
+          realDeviceId = defaultDeviceId || null;
         }
-        audioStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+
+        // 第 3 步：用选中的真实麦克风重新打开流（关掉 EC/NS/AGC，它们会把声音压成静音）
+        audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            ...(realDeviceId ? { deviceId: { exact: realDeviceId } } : {}),
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          }
+        });
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();  // 不强制采样率，用浏览器真实值
         sourceNode = audioCtx.createMediaStreamSource(audioStream);
         processor = audioCtx.createScriptProcessor(4096, 1, 1);
