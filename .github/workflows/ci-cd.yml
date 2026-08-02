@@ -158,10 +158,10 @@ jobs:
             # 方式 A：systemd 托管（部署账号需配置 NOPASSWD sudo 执行 systemctl）
             sudo systemctl restart "${{ env.SERVICE_NAME }}"
 
-            # 调试：直接读取 Nginx 站点/conf.d 配置，排查 /asr 等路径是否被代理
+            # 调试：递归读取 Nginx 全部配置，排查 /asr 等路径是否被代理
             # （定位完成后可删除此段）
-            echo "===== NGINX CONFIG (location/proxy) ====="
-            sudo grep -nE "location|proxy_pass|proxy_set_header|listen|server_name|root|index" /etc/nginx/sites-enabled/* /etc/nginx/conf.d/* 2>&1 || true
+            echo "===== NGINX CONFIG (recursive) ====="
+            sudo grep -rnE "location|proxy_pass|proxy_set_header|listen|server_name|root|index|include" /etc/nginx/ 2>/dev/null | grep -vE "^\s*#|mime.types|koi|win-utf|fastcgi|uwsgi|scgi" | head -60 || true
 
             # 方式 B：Docker Compose
             # docker compose -f docker-compose.yml up -d --build
