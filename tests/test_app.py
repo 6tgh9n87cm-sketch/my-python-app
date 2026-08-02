@@ -135,7 +135,7 @@ def test_asr_returns_text(monkeypatch) -> None:
         def SentenceRecognition(self, req):
             assert req.EngSerViceType == "16k_zh"
             assert req.VoiceFormat == "wav"
-            assert req.SourceType == 0
+            assert req.SourceType == 1
             return _FakeResp()
 
     monkeypatch.setattr(asr_client_module, "AsrClient", _FakeAsrClient)
