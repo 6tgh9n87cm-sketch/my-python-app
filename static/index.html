@@ -671,11 +671,22 @@
         processor.onaudioprocess = (e) => {
           const data = e.inputBuffer.getChannelData(0);
           pcmChunks.push(new Float32Array(data));  // 存原始 Float32，停止时统一降采样
+          // 实时音量反馈：让用户知道麦克风是否在采集（Chrome 静音优化会导致数据全 0）
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+          const rms = Math.sqrt(sum / data.length);
+          if (micBtn) {
+            const lvl = Math.min(8, Math.max(0, Math.floor(rms * 80)));
+            micBtn.style.boxShadow = `0 0 ${4 + lvl * 3}px rgba(0,229,255,${0.3 + rms * 4})`;
+            micBtn.style.transform = rms > 0.005 ? `scale(${1 + Math.min(0.15, rms * 4)})` : '';
+          }
         };
         sourceNode.connect(processor);
-        // 静音 gain：防止听到自己的回声，同时保持 processor 在处理图里不被 GC
+        // ⚠️ 不能用 gain=0！Chrome 会把"无声音输出"的音频图静音化，导致 onaudioprocess 收不到数据。
+        // 必须非零（极小即可）保持音频图活跃，processor 才能持续收到麦克风数据。
+        // gainNode 只为"防止自己听到回声"，不是用来阻止 onaudioprocess 触发。
         gainNode = audioCtx.createGain();
-        gainNode.gain.value = 0;
+        gainNode.gain.value = 0.0001;   // 极小但非零，避开 Chrome 静音优化
         processor.connect(gainNode);
         gainNode.connect(audioCtx.destination);
         isRecording = true;
