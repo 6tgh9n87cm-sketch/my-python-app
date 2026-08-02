@@ -168,15 +168,22 @@ jobs:
             # ===== 重启服务 =====
             sudo systemctl restart "${{ env.SERVICE_NAME }}"
 
-            # ===== 验证环境变量已加载 =====
+          REMOTE
+
+      - name: 诊断：验证环境变量与 ASR 端点
+        run: |
+          ssh -p "${{ secrets.SSH_PORT || 22 }}" -i ~/.ssh/deploy_key \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=6 \
+            "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" <<'REMOTE'
+            # 诊断步骤允许失败，不影响部署结果
             echo "=== systemd Environment ==="
-            sudo systemctl show "${{ env.SERVICE_NAME }}" -p Environment | tr ' ' '\n' | grep TENCENT || echo "WARNING: TENCENT vars NOT loaded!"
+            sudo systemctl show myapp -p Environment | tr ' ' '\n' | grep TENCENT || echo "WARNING: TENCENT vars NOT loaded!"
 
             echo "=== .env permissions ==="
-            ls -la "${{ env.DEPLOY_PATH }}/.env"
+            ls -la /var/www/app/.env || true
 
             echo "=== gunicorn process env ==="
-            sleep 2  # 等 worker 启动
+            sleep 2
             GPID=$(pgrep -f "gunicorn.*app:app" | head -1)
             if [ -n "$GPID" ]; then
               cat /proc/"$GPID"/environ 2>/dev/null | tr '\0' '\n' | grep TENCENT || echo "WARNING: TENCENT not in process env!"
@@ -184,15 +191,11 @@ jobs:
               echo "WARNING: gunicorn process not found yet"
             fi
 
-            # ===== 测试 /asr 端点（带真实 wav 头） =====
             echo "=== ASR endpoint test ==="
-            python3 -c "import struct,sys;sr=16000;n=sr//2;d=b''.join(struct.pack('<h',0)for _ in range(n));h=b'RIFF'+struct.pack('<I',36+len(d))+b'WAVEfmt '+struct.pack('<IHHIIHH',16,1,1,sr,sr*2,2,16)+b'data'+struct.pack('<I',len(d));sys.stdout.buffer.write(h+d)" > /tmp/test_silence.wav
-            curl -s --max-time 20 -X POST http://127.0.0.1:8000/asr -F "audio=@/tmp/test_silence.wav" | head -c 500 || echo "ASR endpoint test failed"
+            python3 -c "import struct,sys;sr=16000;n=sr//2;d=b''.join(struct.pack('<h',0)for _ in range(n));h=b'RIFF'+struct.pack('<I',36+len(d))+b'WAVEfmt '+struct.pack('<IHHIIHH',16,1,1,sr,sr*2,2,16)+b'data'+struct.pack('<I',len(d));sys.stdout.buffer.write(h+d)" > /tmp/test_silence.wav 2>/dev/null
+            curl -s --max-time 20 -X POST http://127.0.0.1:8000/asr -F "audio=@/tmp/test_silence.wav" 2>&1 | head -c 500 || echo "ASR endpoint test failed"
             echo ""
 
-            # 方式 B：Docker Compose
-            # docker compose -f docker-compose.yml up -d --build
-
-            # 方式 C：Supervisor
-            # supervisorctl restart "${{ env.SERVICE_NAME }}"
+            echo "=== recent app logs ==="
+            sudo journalctl -u myapp --since "5 min ago" --no-pager 2>&1 | grep -iE "asr|tencent|error|secret" | tail -10 || echo "no relevant logs"
           REMOTE
