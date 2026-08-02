@@ -193,9 +193,9 @@ def tts():
             return jsonify({"error": "TTS 返回为空"}), 502
         audio_bytes = base64.b64decode(resp.Audio)
         return Response(audio_bytes, mimetype="audio/mpeg")
-    except Exception:
+    except Exception as exc:
         logger.exception("TTS request failed")
-        return jsonify({"error": "TTS 生成失败"}), 502
+        return jsonify({"error": "TTS 生成失败", "detail": str(exc)}), 502
 
 
 @app.post("/asr")
