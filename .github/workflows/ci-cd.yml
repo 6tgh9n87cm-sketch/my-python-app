@@ -158,10 +158,17 @@ jobs:
             # 方式 A：systemd 托管（部署账号需配置 NOPASSWD sudo 执行 systemctl）
             sudo systemctl restart "${{ env.SERVICE_NAME }}"
 
-            # 调试：递归读取 Nginx 全部配置（nginx 配置默认 world-readable，无需 sudo）
+            # 调试：在服务器本地 curl 探测后端各端点，确认 /asr 路由是否正常工作
             # （定位完成后可删除此段）
-            echo "===== NGINX CONFIG (recursive) ====="
-            /bin/grep -rnE "location|proxy_pass|proxy_set_header|listen|server_name|root|index|include" /etc/nginx/ 2>/dev/null | grep -vE "^\s*#|mime.types|koi|win-utf|fastcgi|uwsgi|scgi" | head -60 || true
+            echo "=== backend probe /chat/stream ==="
+            curl -s --max-time 15 -X POST http://127.0.0.1:8000/chat/stream -H "Content-Type: application/json" -d '{"message":"hi"}' | head -c 200 || true
+            echo ""
+            echo "=== backend probe /asr (empty audio) ==="
+            curl -s --max-time 15 -X POST http://127.0.0.1:8000/asr -F "audio=@/dev/null" | head -c 300 || true
+            echo ""
+            echo "=== backend probe /tts ==="
+            curl -s --max-time 15 -X POST http://127.0.0.1:8000/tts -H "Content-Type: application/json" -d '{"text":"hi"}' | head -c 200 || true
+            echo ""
 
             # 方式 B：Docker Compose
             # docker compose -f docker-compose.yml up -d --build
