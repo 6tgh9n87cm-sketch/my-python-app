@@ -186,14 +186,7 @@ jobs:
 
             # ===== 测试 /asr 端点（带真实 wav 头） =====
             echo "=== ASR endpoint test ==="
-            # 生成 0.5 秒静音 WAV（16kHz 16bit mono）
-            python3 -c "
-import struct, io, sys
-sr=16000; n=sr//2
-data=b''.join(struct.pack('<h',0) for _ in range(n))
-hdr=b'RIFF'+struct.pack('<I',36+len(data))+b'WAVEfmt '+struct.pack('<IHHIIHH',16,1,1,sr,sr*2,2,16)+b'data'+struct.pack('<I',len(data))
-sys.stdout.buffer.write(hdr+data)
-" > /tmp/test_silence.wav
+            python3 -c "import struct,sys;sr=16000;n=sr//2;d=b''.join(struct.pack('<h',0)for _ in range(n));h=b'RIFF'+struct.pack('<I',36+len(d))+b'WAVEfmt '+struct.pack('<IHHIIHH',16,1,1,sr,sr*2,2,16)+b'data'+struct.pack('<I',len(d));sys.stdout.buffer.write(h+d)" > /tmp/test_silence.wav
             curl -s --max-time 20 -X POST http://127.0.0.1:8000/asr -F "audio=@/tmp/test_silence.wav" | head -c 500 || echo "ASR endpoint test failed"
             echo ""
 
