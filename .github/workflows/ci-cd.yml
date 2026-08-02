@@ -158,18 +158,6 @@ jobs:
             # 方式 A：systemd 托管（部署账号需配置 NOPASSWD sudo 执行 systemctl）
             sudo systemctl restart "${{ env.SERVICE_NAME }}"
 
-            # 调试：在服务器本地 curl 探测后端各端点，确认 /asr 路由是否正常工作
-            # （定位完成后可删除此段）
-            echo "=== backend probe /chat/stream ==="
-            curl -s --max-time 15 -X POST http://127.0.0.1:8000/chat/stream -H "Content-Type: application/json" -d '{"message":"hi"}' | head -c 200 || true
-            echo ""
-            echo "=== backend probe /asr (empty audio) ==="
-            curl -s --max-time 15 -X POST http://127.0.0.1:8000/asr -F "audio=@/dev/null" | head -c 300 || true
-            echo ""
-            echo "=== backend probe /tts ==="
-            curl -s --max-time 15 -X POST http://127.0.0.1:8000/tts -H "Content-Type: application/json" -d '{"text":"hi"}' | head -c 200 || true
-            echo ""
-
             # 方式 B：Docker Compose
             # docker compose -f docker-compose.yml up -d --build
 
