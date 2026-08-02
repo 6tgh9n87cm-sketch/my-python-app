@@ -674,7 +674,9 @@
           const devs = await navigator.mediaDevices.enumerateDevices();
           const mics = devs.filter(d => d.kind === "audioinput");
           // 排除 SteelSeries Sonar / Virtual / Stereo Mix 等虚拟/无声设备
-          const realMic = mics.find(d => /realtek|mic|microphone array|internal/i.test(d.label))
+          // ⚠️ 不能用 /mic/ — "Microphone" 含 "mic" 会让 SteelSeries Sonar 误匹配
+          // 用更精确的关键字：realtek / microphone array / internal
+          const realMic = mics.find(d => /realtek|microphone array|internal/i.test(d.label))
                          || mics.find(d => !/sonar|virtual|stereo mix|communications|waveterm/i.test(d.label))
                          || null;
           realDeviceId = realMic ? realMic.deviceId : (defaultDeviceId || null);
