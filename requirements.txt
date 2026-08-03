@@ -16,7 +16,7 @@ gunicorn>=26.0.0
 # ===== 开发 / 测试 / 代码质量 =====
 pytest>=9.1.1
 pytest-cov>=7.1.0
-ruff>=0.4
+ruff>=0.16.1
 
 # ===== 如果用 FastAPI 而非 Flask，把上面 gunicorn 换成 =====
 # uvicorn>=0.30
